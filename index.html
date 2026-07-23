@@ -1,18 +1,16 @@
-<!DOCTYPE html>
+
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SK하이닉스 나스닥 ADR (SKHY) 데이트레이딩 코치</title>
+    <title>SK하이닉스 ADR 괴리율 & 피봇 데이트레이딩 코치</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX compilation in browser -->
+    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #020617; color: #f1f5f9; }
     </style>
@@ -21,290 +19,384 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
-        
-        function App() {
-            const [activeTab, setActiveTab] = useState('prep');
-            const [copiedId, setCopiedId] = useState(null);
-            const [nlpText, setNlpText] = useState("");
+        const { useState, useMemo } = React;
 
-            // SK하이닉스 나스닥 ADR SKHY 기준 현실적인 기본값 세팅
-            const [marketData, setMarketData] = useState({
-                prevClose: 165000,
-                prevLow: 162000,
-                prevHigh: 172000,
-                fx: 1370,
-                futuresFlow: "상승 압력",
-                adrStatus: "강세(+1.5% 이상)",
-                supplyFlow: "순매수 우위",
-                googleExpectation: "HBM 수요 호조 및 실적 기대감"
+        const ActivityIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        );
+        const TargetIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+        );
+        const TrendingUpIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+        );
+        const TrendingDownIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>
+        );
+        const ExternalLinkIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+        );
+        const CopyIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        );
+        const CheckIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        );
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('input');
+            const [toastMessage, setToastMessage] = useState(null);
+            const [copied, setCopied] = useState(false);
+            const [aiResponseText, setAiResponseText] = useState('');
+
+            // 입력 데이터 상태
+            const [marketInput, setMarketInput] = useState({
+                prevClose: 185000,
+                prevHigh: 192000,
+                prevLow: 181000,
+                adrPriceUSD: 135.5,
+                exchangeRate: 1370,
+                openPrice: 186000
             });
 
-            const [plan, setPlan] = useState({ buy1: 163000, target: 175000, stopLoss: 158000, currentPrice: 164500 });
-            const [tradeSettings, setTradeSettings] = useState({ totalCapital: 10000000 });
+            const [tradeSettings, setTradeSettings] = useState({
+                totalCapital: 10000000
+            });
 
-            // 아이콘 리프레시
-            useEffect(() => {
-                if (window.lucide) {
-                    window.lucide.createIcons();
+            const showToast = (msg) => {
+                setToastMessage(msg);
+                setTimeout(() => setToastMessage(null), 3000);
+            };
+
+            const dataPromptText = `[데이터 요청] 다음 SK하이닉스(000660) 국내 본주, 미국 ADR, 그리고 환율에 관한 최신 데이터를 정확한 숫자와 값으로만 요약 출력해줘. (컴마 구분 및 단위 포함)
+
+1. 전일 본주 종가 (KRW): 
+2. 전일 본주 고가 (KRW): 
+3. 전일 본주 저가 (KRW): 
+4. 미국 ADR 종가 (USD): 
+5. 원/달러 환율 (KRW/USD): 
+6. 당일 개장 시가 (갭 보정용 KRW): `;
+
+            const handleCopyPrompt = () => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(dataPromptText).then(() => {
+                        setCopied(true);
+                        showToast("📋 기계적 프롬프트가 복사되었습니다!");
+                        setTimeout(() => setCopied(false), 2000);
+                    });
                 }
-            }, [activeTab, copiedId]);
+            };
 
-            const handleNlpParse = () => {
-                if (!nlpText.trim()) return;
-                const newValues = { ...marketData };
-                const text = nlpText;
+            // AI 응답 자동 파싱 로직
+            const handleAutoParse = () => {
+                if (!aiResponseText.trim()) {
+                    showToast("⚠️ 파싱할 AI 응답 텍스트를 입력해주세요.");
+                    return;
+                }
 
-                const extractNumber = (keyword) => {
-                    const index = text.indexOf(keyword);
-                    if (index !== -1) {
-                        const substring = text.substring(index, index + 35);
-                        const match = substring.match(/\d{1,3}(,\d{3})*(\.\d+)?/);
-                        if (match) return parseInt(match[0].replace(/,/g, ''));
+                const text = aiResponseText;
+                const newValues = { ...marketInput };
+
+                const extractNumber = (keyword, isFloat = false) => {
+                    const idx = text.indexOf(keyword);
+                    if (idx !== -1) {
+                        const sub = text.substring(idx, idx + 60);
+                        const match = sub.match(/\$?\s*(\d{1,3}(?:,\d{3})*|\d+)(\.\d+)?/);
+                        if (match) {
+                            const clean = match[0].replace(/[^0-9.]/g, '');
+                            const val = isFloat ? parseFloat(clean) : parseInt(clean, 10);
+                            if (!isNaN(val)) return val;
+                        }
                     }
                     return null;
                 };
 
-                const parsedClose = extractNumber("종가");
-                if (parsedClose && parsedClose > 1000) newValues.prevClose = parsedClose;
-                const parsedHigh = extractNumber("고가");
-                if (parsedHigh && parsedHigh > 1000) newValues.prevHigh = parsedHigh;
-                const parsedLow = extractNumber("저가");
-                if (parsedLow && parsedLow > 1000) newValues.prevLow = parsedLow;
-                const parsedFx = extractNumber("환율");
-                if (parsedFx && parsedFx < 2000 && parsedFx > 1000) newValues.fx = parsedFx;
+                const pClose = extractNumber("전일 본주 종가");
+                if (pClose && pClose > 1000) newValues.prevClose = pClose;
 
-                setMarketData(newValues);
-                alert("✨ 자연어 분석 완료!");
+                const pHigh = extractNumber("전일 본주 고가");
+                if (pHigh && pHigh > 1000) newValues.prevHigh = pHigh;
+
+                const pLow = extractNumber("전일 본주 저가");
+                if (pLow && pLow > 1000) newValues.prevLow = pLow;
+
+                const adr = extractNumber("미국 ADR 종가", true);
+                if (adr && adr > 10) newValues.adrPriceUSD = adr;
+
+                const fx = extractNumber("원/달러 환율", true);
+                if (fx && fx > 500 && fx < 3000) newValues.exchangeRate = fx;
+
+                const op = extractNumber("당일 개장 시가");
+                if (op && op > 1000) newValues.openPrice = op;
+
+                setMarketInput(newValues);
+                showToast("✨ AI 답변 파싱 완료! 입력값이 자동으로 갱신되었습니다.");
             };
 
-            const promptQuestions = [
-                {
-                    id: 1,
-                    title: "1. SK하이닉스 나스닥 상장 (SKHY) 시세 및 환율",
-                    question: `[데이터 요청] 다음 항목을 정확한 숫자와 값으로만 요약 출력해줘: 
-1. SK하이닉스 미국 나스닥 ADR (SKHY) 전일 종가:
-2. SK하이닉스 미국 나스닥 ADR (SKHY) 전일 저가:
-3. SK하이닉스 미국 나스닥 ADR (SKHY) 전일 고가:
-4. 현재 원/달러 환율:`
-                },
-                {
-                    id: 2,
-                    title: "2. 글로벌 지표 및 HBM/수급 모니터링 (기계적 파싱용)",
-                    question: `[데이터 요청] 다음 글로벌 및 수급 지표를 명확한 상태값(상승압력/하락압력/순매수우위 등)으로 요약 출력해줘:
-1. 미국 필라델피아 반도체 지수 흐름 (상승 압력 / 하락 압력 / 보합 중 택1):
-2. SK하이닉스(SKHY) 프리마켓 및 본장 모멘텀 (강세 / 중립 / 약세 중 택1):
-3. 최근 기관 및 외국인 수급 동향 (순매수 우위 / 중립 / 순매도 출하 중 택1):
-4. HBM 수요 및 실적 모멘텀 키워드 (호조 / 불확실 / 우려 중 택1):`
+            const calculations = useMemo(() => {
+                const { prevClose, prevHigh, prevLow, adrPriceUSD, exchangeRate, openPrice } = marketInput;
+
+                const pivotPrice = (prevHigh + prevLow + prevClose) / 3;
+                const range = prevHigh - prevLow;
+
+                const baseBuy1 = pivotPrice - range * 0.382;
+                const baseBuy2 = prevLow;
+                const baseSell1 = pivotPrice + range * 0.382;
+                const baseSell2 = prevHigh;
+
+                const domesticDollarPrice = prevClose / exchangeRate;
+                const disparityRate = domesticDollarPrice > 0 ? ((adrPriceUSD - domesticDollarPrice) / domesticDollarPrice) * 100 : 0;
+
+                let disparityMultiplier = 1.0;
+                let disparityComment = "괴리율 중립 (기준 가격 유지)";
+                if (disparityRate > 2.0) {
+                    disparityMultiplier = 1.015;
+                    disparityComment = "괴리율 > +2% (미국 ADR 강세 ➔ 목표가 상향 보정)";
+                } else if (disparityRate < -2.0) {
+                    disparityMultiplier = 0.985;
+                    disparityComment = "괴리율 < -2% (미국 ADR 약세 ➔ 매수가 하향 보정)";
                 }
-            ];
 
-            const copyPromptText = (text, index) => {
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                textArea.style.position = "fixed";
-                textArea.style.top = "0";
-                textArea.style.left = "0";
-                textArea.style.opacity = "0";
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                try {
-                    document.execCommand('copy');
-                    setCopiedId(index);
-                    setTimeout(() => setCopiedId(null), 2000);
-                } catch (err) {
-                    console.error('Copy failed', err);
-                }
-                document.body.removeChild(textArea);
-            };
+                const adjustedBuy1 = Math.round(baseBuy1 * disparityMultiplier);
+                const adjustedBuy2 = Math.round(baseBuy2 * disparityMultiplier);
+                const adjustedSell1 = Math.round(baseSell1 * disparityMultiplier);
+                const adjustedSell2 = Math.round(baseSell2 * disparityMultiplier);
 
-            const analysis = useMemo(() => {
-                let score = 50;
-                if (marketData.futuresFlow === "상승 압력") score += 15;
-                if (marketData.adrStatus === "강세(+1.5% 이상)") score += 15;
-                if (marketData.supplyFlow === "순매수 우위") score += 15;
+                const gap = openPrice - prevClose;
+                const finalBuy1 = Math.round(adjustedBuy1 + gap);
+                const finalBuy2 = Math.round(adjustedBuy2 + gap);
+                const finalSell1 = Math.round(adjustedSell1 + gap);
+                const finalSell2 = Math.round(adjustedSell2 + gap);
 
-                let sentiment = score >= 75 ? "강한 매수 우위 (공격적 분할매수 유효)" : score >= 60 ? "완만한 상승 우위 (눌림목 중심 공략)" : "보수적 관망 및 비중 축소";
-                const supportZone = marketData.prevLow > 0 && marketData.prevClose > 0 ? Math.round((marketData.prevLow + marketData.prevClose) / 2) : 162000;
-                const resistZone = marketData.prevHigh > 0 ? marketData.prevHigh : 172000;
-
-                return { score, sentiment, supportZone, resistZone };
-            }, [marketData]);
-
-            const tranchePlan = useMemo(() => {
-                const baseBuy = plan.buy1 > 0 ? plan.buy1 : analysis.supportZone;
-                const target = plan.target > 0 ? plan.target : analysis.resistZone;
-                const stop = plan.stopLoss > 0 ? plan.stopLoss : Math.round(baseBuy * 0.975);
-
-                const cap = tradeSettings.totalCapital;
                 return {
-                    buys: [
-                        { step: '1차 진입 (초반 지지)', price: baseBuy, ratio: '40%', amount: Math.round(cap * 0.4), shares: Math.floor((cap * 0.4) / baseBuy) },
-                        { step: '2차 진입 (눌림목 추가)', price: Math.round(baseBuy * 0.988), ratio: '30%', amount: Math.round(cap * 0.3), shares: Math.floor((cap * 0.3) / (baseBuy * 0.988)) },
-                        { step: '3차 진입 (최종 지지방어)', price: Math.round(baseBuy * 0.976), ratio: '30%', amount: Math.round(cap * 0.3), shares: Math.floor((cap * 0.3) / (baseBuy * 0.976)) },
-                    ],
-                    sells: [
-                        { step: '1차 익절 (수익 확보)', price: Math.round(target * 0.97), ratio: '30%' },
-                        { step: '2차 익절 (핵심 저항)', price: Math.round(target * 0.985), ratio: '40%' },
-                        { step: '3차 익절 (최고점 잔량)', price: target, ratio: '30%' },
-                    ],
-                    stopLoss: stop
+                    pivotPrice: Math.round(pivotPrice),
+                    range: Math.round(range),
+                    domesticDollarPrice: domesticDollarPrice.toFixed(2),
+                    disparityRate: disparityRate.toFixed(2),
+                    disparityComment,
+                    gap,
+                    finalBuy1,
+                    finalBuy2,
+                    finalSell1,
+                    finalSell2
                 };
-            }, [plan, analysis, tradeSettings]);
+            }, [marketInput]);
 
             return (
-                <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
-                    {/* HEADER */}
+                <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6 relative">
+                    {toastMessage && (
+                        <div className="fixed top-5 right-5 z-50 bg-cyan-600 text-white px-5 py-3 rounded-xl shadow-2xl font-bold text-xs flex items-center gap-2 border border-cyan-400 animate-bounce">
+                            {toastMessage}
+                        </div>
+                    )}
+
                     <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-5">
                         <div className="space-y-1">
-                            <h1 className="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
-                                SK하이닉스 나스닥 ADR (SKHY) 데이트레이딩 코치
-                            </h1>
+                            <div className="flex items-center gap-2">
+                                <ActivityIcon className="text-cyan-400 w-6 h-6" />
+                                <h1 className="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
+                                    SK하이닉스 ADR 괴리율 & 피봇 데이트레이딩 코치
+                                </h1>
+                            </div>
                             <p className="text-sm text-slate-400 flex items-center gap-2">
                                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                                실시간 연동형 코칭 시스템
+                                전일 고·저·종가 + 미국 ADR 괴리율 + 시가 갭 보정 알고리즘
                             </p>
                         </div>
                         <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
-                            <button onClick={() => setActiveTab('prep')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'prep' ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400'}`}>1. 장전 준비 (Prep)</button>
-                            <button onClick={() => setActiveTab('trade')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'trade' ? 'bg-emerald-950 text-emerald-400' : 'text-slate-400'}`}>2. 장중 대응 (Trade)</button>
+                            <button onClick={() => setActiveTab('input')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'input' ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400'}`}>1단계: 데이터 및 변수 입력</button>
+                            <button onClick={() => setActiveTab('result')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'result' ? 'bg-emerald-950 text-emerald-400' : 'text-slate-400'}`}>2단계: 최종 매수·매도 산정</button>
                         </div>
                     </header>
 
-                    {/* QUICK LINKS */}
                     <section className="flex flex-wrap items-center gap-3 text-xs bg-slate-900/50 p-3 rounded-xl border border-slate-800">
-                        <span className="text-slate-400 font-semibold">주요 실시간 링크:</span>
+                        <span className="text-slate-400 font-semibold flex items-center gap-1.5"><ExternalLinkIcon className="w-4 h-4" /> 참고 링크:</span>
+                        <a href="https://finance.naver.com/item/main.nhn?code=000660" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-md border border-slate-700">
+                            네이버 증권 (SK하이닉스)
+                        </a>
                         <a href="https://finance.yahoo.com/quote/SKHY/" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-md border border-slate-700">
                             야후 파이낸스 (SKHY ADR)
                         </a>
                     </section>
 
-                    {/* TAB 1: PREP */}
-                    {activeTab === 'prep' && (
+                    {activeTab === 'input' && (
                         <div className="space-y-6">
-                            {/* AI 프롬프트 생성기 */}
-                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                                <h3 className="text-sm font-bold text-cyan-400">AI 질문 프롬프트 생성기 (데이터 수집용)</h3>
-                                <div className="grid md:grid-cols-2 gap-4">
-                                    {promptQuestions.map((item, idx) => (
-                                        <div key={item.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
-                                            <div className="text-xs font-bold text-slate-300">{item.title}</div>
-                                            <p className="text-[11px] font-mono text-slate-400 bg-slate-900 p-2.5 rounded-lg border border-slate-800">{item.question}</p>
-                                            <button onClick={() => copyPromptText(item.question, idx)} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-bold border border-slate-700">
-                                                {copiedId === idx ? '복사 완료!' : '질문 프롬프트 복사하기'}
-                                            </button>
-                                        </div>
-                                    ))}
+                            {/* AI 프롬프트 복사 및 파서 섹션 */}
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                                    <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                                        <CopyIcon className="w-4 h-4" /> AI 질문용 기계적 프롬프트 복사 & 자동 채우기
+                                    </h3>
+                                    <span className="text-xs text-slate-400">ChatGPT / Claude에 아래 질문을 복사해 사용하세요</span>
                                 </div>
-                                <div className="pt-3 border-t border-slate-800 space-y-2">
-                                    <label className="text-xs font-semibold text-slate-300 block">🤖 AI 답변 자동 파싱</label>
-                                    <div className="flex gap-2">
-                                        <textarea rows="2" value={nlpText} onChange={(e) => setNlpText(e.target.value)} placeholder="AI가 알려준 답변을 여기에 붙여넣고 버튼을 누르세요" className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none" />
-                                        <button onClick={handleNlpParse} className="px-5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold">자동 채우기</button>
+
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col space-y-3">
+                                    <pre className="text-xs font-mono text-slate-300 whitespace-pre-wrap bg-slate-900 p-3 rounded-lg border border-slate-800">
+                                        {dataPromptText}
+                                    </pre>
+                                    <button 
+                                        onClick={handleCopyPrompt}
+                                        className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all
+                                            ${copied ? 'bg-emerald-600 text-white' : 'bg-cyan-600 hover:bg-cyan-500 text-white'}`}
+                                    >
+                                        {copied ? <><CheckIcon className="w-4 h-4" /> 복사 완료!</> : <><CopyIcon className="w-4 h-4" /> 프롬프트 복사하기</>}
+                                    </button>
+                                </div>
+
+                                <div className="space-y-2 pt-2">
+                                    <label className="text-xs font-semibold text-slate-300 block">
+                                        🤖 AI 답변 붙여넣기 후 자동 채우기
+                                    </label>
+                                    <div className="flex flex-col md:flex-row gap-2">
+                                        <textarea 
+                                            rows="2"
+                                            value={aiResponseText}
+                                            onChange={(e) => setAiResponseText(e.target.value)}
+                                            placeholder="AI가 답변한 결과 텍스트를 여기에 붙여넣으세요..."
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+                                        />
+                                        <button 
+                                            onClick={handleAutoParse}
+                                            className="px-5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded-lg text-xs font-bold transition whitespace-nowrap"
+                                        >
+                                            자동 채우기
+                                        </button>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* 핵심 파라미터 수동 세팅 */}
-                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                                <h3 className="text-sm font-bold text-slate-200 border-b border-slate-800 pb-3">
-                                    🎯 핵심 파라미터 수동 세팅 (SKHY 나스닥 기준)
+                            {/* 수동 세팅 입력 카드 */}
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                                    <TargetIcon className="w-4 h-4" /> [수동 세팅] 전일 가격 파동 및 미국 ADR / 환율 입력
                                 </h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-950/50 rounded-xl border border-slate-800">
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-slate-400 block">전일 종가 ($)</label>
-                                        <input type="number" value={marketData.prevClose} onChange={(e) => setMarketData({...marketData, prevClose: parseInt(e.target.value) || 0})}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 본주 종가 (KRW)</label>
+                                        <input type="number" value={marketInput.prevClose} onChange={(e) => setMarketInput({...marketInput, prevClose: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-slate-400 block">전일 저가 ($ - 지지)</label>
-                                        <input type="number" value={marketData.prevLow} onChange={(e) => setMarketData({...marketData, prevLow: parseInt(e.target.value) || 0})}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 본주 고가 (KRW)</label>
+                                        <input type="number" value={marketInput.prevHigh} onChange={(e) => setMarketInput({...marketInput, prevHigh: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-slate-400 block">전일 고가 ($ - 저항)</label>
-                                        <input type="number" value={marketData.prevHigh} onChange={(e) => setMarketData({...marketData, prevHigh: parseInt(e.target.value) || 0})}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 본주 저가 (KRW)</label>
+                                        <input type="number" value={marketInput.prevLow} onChange={(e) => setMarketInput({...marketInput, prevLow: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-slate-400 block">원/달러 환율</label>
-                                        <input type="number" value={marketData.fx} onChange={(e) => setMarketData({...marketData, fx: parseInt(e.target.value) || 0})}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                        <label className="text-xs font-semibold text-slate-400 block">미국 ADR 종가 (USD)</label>
+                                        <input type="number" step="0.1" value={marketInput.adrPriceUSD} onChange={(e) => setMarketInput({...marketInput, adrPriceUSD: parseFloat(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">원/달러 환율 (KRW/USD)</label>
+                                        <input type="number" value={marketInput.exchangeRate} onChange={(e) => setMarketInput({...marketInput, exchangeRate: parseFloat(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">당일 개장 시가 (갭 보정용 KRW)</label>
+                                        <input type="number" value={marketInput.openPrice} onChange={(e) => setMarketInput({...marketInput, openPrice: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
                                     </div>
                                 </div>
-                            </div>
-
-                            {/* SKHY 나스닥 장전 전략 브리핑 */}
-                            <div className="bg-gradient-to-r from-cyan-950 to-blue-950 border border-cyan-800 rounded-2xl p-6 space-y-4">
-                                <h3 className="text-lg font-bold text-cyan-300">📈 SKHY 나스닥 장전 전략 브리핑</h3>
-                                <div className="grid md:grid-cols-2 gap-6">
-                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
-                                        <p className="text-xs text-slate-400 mb-1">오늘의 시장 심리 점수</p>
-                                        <div className="flex items-end gap-3">
-                                            <span className="text-4xl font-black text-emerald-400">{analysis.score}</span>
-                                            <span className="text-sm text-slate-500 mb-1">/ 100</span>
-                                        </div>
-                                        <p className="text-sm font-semibold text-slate-300 mt-2">{analysis.sentiment}</p>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center">
-                                            <span className="text-sm text-slate-400">추천 1차 지지선 ($)</span>
-                                            <span className="text-lg font-bold text-amber-300 font-mono">${analysis.supportZone.toLocaleString()}</span>
-                                        </div>
-                                        <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center">
-                                            <span className="text-sm text-slate-400">오늘 핵심 저항선 ($)</span>
-                                            <span className="text-lg font-bold text-cyan-300 font-mono">${analysis.resistZone.toLocaleString()}</span>
-                                        </div>
-                                    </div>
+                                <div className="pt-4 flex justify-end">
+                                    <button onClick={() => { setActiveTab('result'); showToast("✨ 알고리즘 산정 완료! 2단계 탭으로 이동했습니다."); }} className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow-lg">
+                                        최종 매수·매도 산정 결과 보기 ➔
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* TAB 2: TRADE */}
-                    {activeTab === 'trade' && (
+                    {activeTab === 'result' && (
                         <div className="space-y-6">
-                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex justify-between items-center gap-4">
-                                <div>
-                                    <h3 className="text-sm font-bold text-slate-200">💰 자본금 및 분할 매매 자금 배분</h3>
-                                    <p className="text-xs text-slate-400">설정한 투자금에 맞추어 3단계 진입 수량이 자동으로 산출됩니다.</p>
-                                </div>
-                                <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
-                                    <span className="text-xs text-slate-400">총 투자금:</span>
-                                    <input type="number" step="100000" value={tradeSettings.totalCapital} onChange={(e) => setTradeSettings({totalCapital: parseInt(e.target.value) || 0})} className="bg-transparent text-sm font-bold font-mono text-cyan-300 w-28 text-right focus:outline-none" />
-                                    <span className="text-xs text-slate-400">원</span>
+                            <div className="bg-gradient-to-r from-cyan-950 to-blue-950 border border-cyan-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                <h3 className="text-lg font-bold text-cyan-300 flex items-center gap-2">
+                                    <TargetIcon className="w-5 h-5" /> [2단계] ADR 괴리율 및 피봇 분석 요약
+                                </h3>
+                                <div className="grid md:grid-cols-3 gap-4">
+                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+                                        <span className="text-xs text-slate-400 block mb-1">피봇 가격 ($P$)</span>
+                                        <span className="text-2xl font-bold text-cyan-300 font-mono">{calculations.pivotPrice.toLocaleString()}원</span>
+                                    </div>
+                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+                                        <span className="text-xs text-slate-400 block mb-1">ADR - 본주 괴리율</span>
+                                        <span className={`text-2xl font-bold font-mono ${parseFloat(calculations.disparityRate) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            {calculations.disparityRate}%
+                                        </span>
+                                        <span className="text-[11px] text-slate-400 block mt-1">{calculations.disparityComment}</span>
+                                    </div>
+                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+                                        <span className="text-xs text-slate-400 block mb-1">당일 시가 갭 (Gap)</span>
+                                        <span className={`text-2xl font-bold font-mono ${calculations.gap >= 0 ? 'text-amber-400' : 'text-blue-400'}`}>
+                                            {calculations.gap >= 0 ? `+${calculations.gap.toLocaleString()}원` : `${calculations.gap.toLocaleString()}원`}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
                             <div className="grid md:grid-cols-2 gap-6">
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                                    <h3 className="text-sm font-bold text-cyan-400">3단계 분할 매수 전략</h3>
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                    <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2"><TrendingDownIcon className="w-4 h-4" /> 1·2차 분할 매수 목표가 (KRW)</h3>
                                     <div className="space-y-3">
-                                        {tranchePlan.buys.map((b, idx) => (
-                                            <div key={idx} className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl flex justify-between items-center">
-                                                <div>
-                                                    <div className="text-xs font-bold text-slate-300">{b.step}</div>
-                                                    <div className="text-[11px] text-slate-400">비중 {b.ratio} ({b.amount.toLocaleString()}원 / 약 {b.shares}주)</div>
-                                                </div>
-                                                <div className="text-base font-extrabold text-cyan-300 font-mono">${b.price.toLocaleString()}</div>
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">1차 매수 (눌림목 피봇 기준)</div>
+                                                <div className="text-[11px] text-slate-400">P - (고가-저가) × 0.382 + 갭 보정</div>
                                             </div>
-                                        ))}
+                                            <div className="text-lg font-extrabold text-cyan-300 font-mono">{calculations.finalBuy1.toLocaleString()}원</div>
+                                        </div>
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">2차 매수 (전일 저가 방어)</div>
+                                                <div className="text-[11px] text-slate-400">전일 저가 근처 + 갭 보정</div>
+                                            </div>
+                                            <div className="text-lg font-extrabold text-cyan-300 font-mono">{calculations.finalBuy2.toLocaleString()}원</div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                                    <h3 className="text-sm font-bold text-emerald-400">3단계 분할 매도 전략</h3>
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                    <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2"><TrendingUpIcon className="w-4 h-4" /> 1·2차 분할 매도 목표가 (KRW)</h3>
                                     <div className="space-y-3">
-                                        {tranchePlan.sells.map((s, idx) => (
-                                            <div key={idx} className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl flex justify-between items-center">
-                                                <div>
-                                                    <div className="text-xs font-bold text-slate-300">{s.step}</div>
-                                                    <div className="text-[11px] text-slate-400">매도 비중: {s.ratio}</div>
-                                                </div>
-                                                <div className="text-base font-extrabold text-emerald-300 font-mono">${s.price.toLocaleString()}</div>
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">1차 매도 (반등 익절)</div>
+                                                <div className="text-[11px] text-slate-400">P + (고가-저가) × 0.382 + 갭 보정</div>
                                             </div>
-                                        ))}
+                                            <div className="text-lg font-extrabold text-emerald-300 font-mono">{calculations.finalSell1.toLocaleString()}원</div>
+                                        </div>
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">2차 매도 (고가 청산)</div>
+                                                <div className="text-[11px] text-slate-400">전일 고가 근처 + 갭 보정</div>
+                                            </div>
+                                            <div className="text-lg font-extrabold text-emerald-300 font-mono">{calculations.finalSell2.toLocaleString()}원</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-sm font-bold text-slate-200">💰 총 투자금 기준 매수 수량 시뮬레이터</h3>
+                                    <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                                        <span className="text-xs text-slate-400">총 투자금:</span>
+                                        <input type="number" step="500000" value={tradeSettings.totalCapital} onChange={(e) => setTradeSettings({totalCapital: parseInt(e.target.value) || 0})} className="bg-transparent text-sm font-bold font-mono text-cyan-300 w-28 text-right focus:outline-none" />
+                                        <span className="text-xs text-slate-400">원</span>
+                                    </div>
+                                </div>
+                                <div className="grid md:grid-cols-2 gap-4 text-xs">
+                                    <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex justify-between">
+                                        <span className="text-slate-400">1차 매수 추천 비중 (50%):</span>
+                                        <span className="font-mono text-slate-200">약 {Math.floor((tradeSettings.totalCapital * 0.5) / calculations.finalBuy1)}주 ({Math.round(tradeSettings.totalCapital * 0.5).toLocaleString()}원)</span>
+                                    </div>
+                                    <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex justify-between">
+                                        <span className="text-slate-400">2차 매수 추천 비중 (50%):</span>
+                                        <span className="font-mono text-slate-200">약 {Math.floor((tradeSettings.totalCapital * 0.5) / calculations.finalBuy2)}주 ({Math.round(tradeSettings.totalCapital * 0.5).toLocaleString()}원)</span>
                                     </div>
                                 </div>
                             </div>
