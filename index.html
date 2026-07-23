@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SK하이닉스 ADR 괴리율 & 피봇 데이트레이딩 코치</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #020617; color: #f1f5f9; }
+    </style>
+</head>
+<body class="min-h-screen selection:bg-cyan-900 selection:text-cyan-100 pb-20">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo } = React;
+
+        const ActivityIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        );
+        const TargetIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+        );
+        const TrendingUpIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+        );
+        const TrendingDownIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>
+        );
+        const ExternalLinkIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+        );
+        const CopyIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        );
+        const CheckIcon = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        );
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('input');
+            const [toastMessage, setToastMessage] = useState(null);
+            const [copied, setCopied] = useState(false);
+            const [aiResponseText, setAiResponseText] = useState('');
+
+            // 입력 데이터 상태
+            const [marketInput, setMarketInput] = useState({
+                prevClose: 185000,
+                prevHigh: 192000,
+                prevLow: 181000,
+                adrPriceUSD: 135.5,
+                exchangeRate: 1370,
+                openPrice: 186000
+            });
+
+            const [tradeSettings, setTradeSettings] = useState({
+                totalCapital: 10000000
+            });
+
+            // 매도 시뮬레이터 상태 추가
+            const [sellSettings, setSellSettings] = useState({
+                ownedShares: 50,
+                avgBuyPrice: 184000
+            });
+
+            const showToast = (msg) => {
+                setToastMessage(msg);
+                setTimeout(() => setToastMessage(null), 3000);
+            };
+
+            const dataPromptText = `[데이터 요청] 다음 SK하이닉스(000660) 국내 본주, 미국 ADR, 그리고 환율에 관한 최신 데이터를 정확한 숫자와 값으로만 요약 출력해줘. (컴마 구분 및 단위 포함)
+
+1. 전일 본주 종가 (KRW): 
+2. 전일 본주 고가 (KRW): 
+3. 전일 본주 저가 (KRW): 
+4. 미국 ADR 종가 (USD): 
+5. 원/달러 환율 (KRW/USD): 
+6. 당일 개장 시가 (갭 보정용 KRW): `;
+
+            const handleCopyPrompt = () => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(dataPromptText).then(() => {
+                        setCopied(true);
+                        showToast("📋 기계적 프롬프트가 복사되었습니다!");
+                        setTimeout(() => setCopied(false), 2000);
+                    });
+                }
+            };
+
+            // AI 응답 자동 파싱 로직
+            const handleAutoParse = () => {
+                if (!aiResponseText.trim()) {
+                    showToast("⚠️ 파싱할 AI 응답 텍스트를 입력해주세요.");
+                    return;
+                }
+
+                const text = aiResponseText;
+                const newValues = { ...marketInput };
+
+                const extractNumber = (keyword, isFloat = false) => {
+                    const idx = text.indexOf(keyword);
+                    if (idx !== -1) {
+                        const sub = text.substring(idx, idx + 60);
+                        const match = sub.match(/\$?\s*(\d{1,3}(?:,\d{3})*|\d+)(\.\d+)?/);
+                        if (match) {
+                            const clean = match[0].replace(/[^0-9.]/g, '');
+                            const val = isFloat ? parseFloat(clean) : parseInt(clean, 10);
+                            if (!isNaN(val)) return val;
+                        }
+                    }
+                    return null;
+                };
+
+                const pClose = extractNumber("전일 본주 종가");
+                if (pClose && pClose > 1000) newValues.prevClose = pClose;
+
+                const pHigh = extractNumber("전일 본주 고가");
+                if (pHigh && pHigh > 1000) newValues.prevHigh = pHigh;
+
+                const pLow = extractNumber("전일 본주 저가");
+                if (pLow && pLow > 1000) newValues.prevLow = pLow;
+
+                const adr = extractNumber("미국 ADR 종가", true);
+                if (adr && adr > 10) newValues.adrPriceUSD = adr;
+
+                const fx = extractNumber("원/달러 환율", true);
+                if (fx && fx > 500 && fx < 3000) newValues.exchangeRate = fx;
+
+                const op = extractNumber("당일 개장 시가");
+                if (op && op > 1000) newValues.openPrice = op;
+
+                setMarketInput(newValues);
+                showToast("✨ AI 답변 파싱 완료! 입력값이 자동으로 갱신되었습니다.");
+            };
+
+            const calculations = useMemo(() => {
+                const { prevClose, prevHigh, prevLow, adrPriceUSD, exchangeRate, openPrice } = marketInput;
+
+                const pivotPrice = (prevHigh + prevLow + prevClose) / 3;
+                const range = prevHigh - prevLow;
+
+                const baseBuy1 = pivotPrice - range * 0.382;
+                const baseBuy2 = prevLow;
+                const baseSell1 = pivotPrice + range * 0.382;
+                const baseSell2 = prevHigh;
+
+                const domesticDollarPrice = prevClose / exchangeRate;
+                const disparityRate = domesticDollarPrice > 0 ? ((adrPriceUSD - domesticDollarPrice) / domesticDollarPrice) * 100 : 0;
+
+                let disparityMultiplier = 1.0;
+                let disparityComment = "괴리율 중립 (기준 가격 유지)";
+                if (disparityRate > 2.0) {
+                    disparityMultiplier = 1.015;
+                    disparityComment = "괴리율 > +2% (미국 ADR 강세 ➔ 목표가 상향 보정)";
+                } else if (disparityRate < -2.0) {
+                    disparityMultiplier = 0.985;
+                    disparityComment = "괴리율 < -2% (미국 ADR 약세 ➔ 매수가 하향 보정)";
+                }
+
+                const adjustedBuy1 = Math.round(baseBuy1 * disparityMultiplier);
+                const adjustedBuy2 = Math.round(baseBuy2 * disparityMultiplier);
+                const adjustedSell1 = Math.round(baseSell1 * disparityMultiplier);
+                const adjustedSell2 = Math.round(baseSell2 * disparityMultiplier);
+
+                const gap = openPrice - prevClose;
+                const finalBuy1 = Math.round(adjustedBuy1 + gap);
+                const finalBuy2 = Math.round(adjustedBuy2 + gap);
+                const finalSell1 = Math.round(adjustedSell1 + gap);
+                const finalSell2 = Math.round(adjustedSell2 + gap);
+
+                return {
+                    pivotPrice: Math.round(pivotPrice),
+                    range: Math.round(range),
+                    domesticDollarPrice: domesticDollarPrice.toFixed(2),
+                    disparityRate: disparityRate.toFixed(2),
+                    disparityComment,
+                    gap,
+                    finalBuy1,
+                    finalBuy2,
+                    finalSell1,
+                    finalSell2
+                };
+            }, [marketInput]);
+
+            // 매도 시뮬레이션 산정 로직
+            const sellSimulation = useMemo(() => {
+                const { ownedShares, avgBuyPrice } = sellSettings;
+                const half1 = Math.floor(ownedShares * 0.5);
+                const half2 = ownedShares - half1;
+
+                const p1 = calculations.finalSell1;
+                const p2 = calculations.finalSell2;
+
+                const proceeds1 = half1 * p1;
+                const cost1 = half1 * avgBuyPrice;
+                const profit1 = proceeds1 - cost1;
+
+                const proceeds2 = half2 * p2;
+                const cost2 = half2 * avgBuyPrice;
+                const profit2 = proceeds2 - cost2;
+
+                const totalProceeds = proceeds1 + proceeds2;
+                const totalCost = ownedShares * avgBuyPrice;
+                const totalProfit = totalProceeds - totalCost;
+                const totalReturnPct = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+
+                return {
+                    half1,
+                    half2,
+                    p1,
+                    p2,
+                    profit1,
+                    profit2,
+                    totalProceeds,
+                    totalProfit,
+                    totalReturnPct
+                };
+            }, [sellSettings, calculations]);
+
+            return (
+                <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6 relative">
+                    {toastMessage && (
+                        <div className="fixed top-5 right-5 z-50 bg-cyan-600 text-white px-5 py-3 rounded-xl shadow-2xl font-bold text-xs flex items-center gap-2 border border-cyan-400 animate-bounce">
+                            {toastMessage}
+                        </div>
+                    )}
+
+                    <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-5">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <ActivityIcon className="text-cyan-400 w-6 h-6" />
+                                <h1 className="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
+                                    SK하이닉스 ADR 괴리율 & 피봇 데이트레이딩 코치
+                                </h1>
+                            </div>
+                            <p className="text-sm text-slate-400 flex items-center gap-2">
+                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                전일 고·저·종가 + 미국 ADR 괴리율 + 시가 갭 보정 알고리즘
+                            </p>
+                        </div>
+                        <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
+                            <button onClick={() => setActiveTab('input')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'input' ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400'}`}>1단계: 데이터 및 변수 입력</button>
+                            <button onClick={() => setActiveTab('result')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'result' ? 'bg-emerald-950 text-emerald-400' : 'text-slate-400'}`}>2단계: 최종 매수·매도 산정</button>
+                        </div>
+                    </header>
+
+                    <section className="flex flex-wrap items-center gap-3 text-xs bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                        <span className="text-slate-400 font-semibold flex items-center gap-1.5"><ExternalLinkIcon className="w-4 h-4" /> 참고 링크:</span>
+                        <a href="https://finance.naver.com/item/main.nhn?code=000660" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-md border border-slate-700">
+                            네이버 증권 (SK하이닉스)
+                        </a>
+                        <a href="https://finance.yahoo.com/quote/SKHY/" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-md border border-slate-700">
+                            야후 파이낸스 (SKHY ADR)
+                        </a>
+                    </section>
+
+                    {activeTab === 'input' && (
+                        <div className="space-y-6">
+                            {/* AI 프롬프트 복사 및 파서 섹션 */}
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                                    <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                                        <CopyIcon className="w-4 h-4" /> AI 질문용 기계적 프롬프트 복사 & 자동 채우기
+                                    </h3>
+                                    <span className="text-xs text-slate-400">ChatGPT / Claude에 아래 질문을 복사해 사용하세요</span>
+                                </div>
+
+                                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col space-y-3">
+                                    <pre className="text-xs font-mono text-slate-300 whitespace-pre-wrap bg-slate-900 p-3 rounded-lg border border-slate-800">
+                                        {dataPromptText}
+                                    </pre>
+                                    <button 
+                                        onClick={handleCopyPrompt}
+                                        className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all
+                                            ${copied ? 'bg-emerald-600 text-white' : 'bg-cyan-600 hover:bg-cyan-500 text-white'}`}
+                                    >
+                                        {copied ? <><CheckIcon className="w-4 h-4" /> 복사 완료!</> : <><CopyIcon className="w-4 h-4" /> 프롬프트 복사하기</>}
+                                    </button>
+                                </div>
+
+                                <div className="space-y-2 pt-2">
+                                    <label className="text-xs font-semibold text-slate-300 block">
+                                        🤖 AI 답변 붙여넣기 후 자동 채우기
+                                    </label>
+                                    <div className="flex flex-col md:flex-row gap-2">
+                                        <textarea 
+                                            rows="2"
+                                            value={aiResponseText}
+                                            onChange={(e) => setAiResponseText(e.target.value)}
+                                            placeholder="AI가 답변한 결과 텍스트를 여기에 붙여넣으세요..."
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+                                        />
+                                        <button 
+                                            onClick={handleAutoParse}
+                                            className="px-5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded-lg text-xs font-bold transition whitespace-nowrap"
+                                        >
+                                            자동 채우기
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 수동 세팅 입력 카드 */}
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                                    <TargetIcon className="w-4 h-4" /> [수동 세팅] 전일 가격 파동 및 미국 ADR / 환율 입력
+                                </h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 본주 종가 (KRW)</label>
+                                        <input type="number" value={marketInput.prevClose} onChange={(e) => setMarketInput({...marketInput, prevClose: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 본주 고가 (KRW)</label>
+                                        <input type="number" value={marketInput.prevHigh} onChange={(e) => setMarketInput({...marketInput, prevHigh: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 본주 저가 (KRW)</label>
+                                        <input type="number" value={marketInput.prevLow} onChange={(e) => setMarketInput({...marketInput, prevLow: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">미국 ADR 종가 (USD)</label>
+                                        <input type="number" step="0.1" value={marketInput.adrPriceUSD} onChange={(e) => setMarketInput({...marketInput, adrPriceUSD: parseFloat(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">원/달러 환율 (KRW/USD)</label>
+                                        <input type="number" value={marketInput.exchangeRate} onChange={(e) => setMarketInput({...marketInput, exchangeRate: parseFloat(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">당일 개장 시가 (갭 보정용 KRW)</label>
+                                        <input type="number" value={marketInput.openPrice} onChange={(e) => setMarketInput({...marketInput, openPrice: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+                                    </div>
+                                </div>
+                                <div className="pt-4 flex justify-end">
+                                    <button onClick={() => { setActiveTab('result'); showToast("✨ 알고리즘 산정 완료! 2단계 탭으로 이동했습니다."); }} className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow-lg">
+                                        최종 매수·매도 산정 결과 보기 ➔
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'result' && (
+                        <div className="space-y-6">
+                            {}
+                            <div className="bg-gradient-to-r from-cyan-950 to-blue-950 border border-cyan-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                <h3 className="text-lg font-bold text-cyan-300 flex items-center gap-2">
+                                    <TargetIcon className="w-5 h-5" /> [2단계] ADR 괴리율 및 피봇 분석 요약
+                                </h3>
+                                <div className="grid md:grid-cols-3 gap-4">
+                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+                                        <span className="text-xs text-slate-400 block mb-1">피봇 가격 ($P$)</span>
+                                        <span className="text-2xl font-bold text-cyan-300 font-mono">{calculations.pivotPrice.toLocaleString()}원</span>
+                                    </div>
+                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+                                        <span className="text-xs text-slate-400 block mb-1">ADR - 본주 괴리율</span>
+                                        <span className={`text-2xl font-bold font-mono ${parseFloat(calculations.disparityRate) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            {calculations.disparityRate}%
+                                        </span>
+                                        <span className="text-[11px] text-slate-400 block mt-1">{calculations.disparityComment}</span>
+                                    </div>
+                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+                                        <span className="text-xs text-slate-400 block mb-1">당일 시가 갭 (Gap)</span>
+                                        <span className={`text-2xl font-bold font-mono ${calculations.gap >= 0 ? 'text-amber-400' : 'text-blue-400'}`}>
+                                            {calculations.gap >= 0 ? `+${calculations.gap.toLocaleString()}원` : `${calculations.gap.toLocaleString()}원`}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid md:grid-cols-2 gap-6">
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                    <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2"><TrendingDownIcon className="w-4 h-4" /> 1·2차 분할 매수 목표가 (KRW)</h3>
+                                    <div className="space-y-3">
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">1차 매수 (눌림목 피봇 기준)</div>
+                                                <div className="text-[11px] text-slate-400">P - (고가-저가) × 0.382 + 갭 보정</div>
+                                            </div>
+                                            <div className="text-lg font-extrabold text-cyan-300 font-mono">{calculations.finalBuy1.toLocaleString()}원</div>
+                                        </div>
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">2차 매수 (전일 저가 방어)</div>
+                                                <div className="text-[11px] text-slate-400">전일 저가 근처 + 갭 보정</div>
+                                            </div>
+                                            <div className="text-lg font-extrabold text-cyan-300 font-mono">{calculations.finalBuy2.toLocaleString()}원</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                                    <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2"><TrendingUpIcon className="w-4 h-4" /> 1·2차 분할 매도 목표가 (KRW)</h3>
+                                    <div className="space-y-3">
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">1차 매도 (반등 익절)</div>
+                                                <div className="text-[11px] text-slate-400">P + (고가-저가) × 0.382 + 갭 보정</div>
+                                            </div>
+                                            <div className="text-lg font-extrabold text-emerald-300 font-mono">{calculations.finalSell1.toLocaleString()}원</div>
+                                        </div>
+                                        <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-300">2차 매도 (고가 청산)</div>
+                                                <div className="text-[11px] text-slate-400">전일 고가 근처 + 갭 보정</div>
+                                            </div>
+                                            <div className="text-lg font-extrabold text-emerald-300 font-mono">{calculations.finalSell2.toLocaleString()}원</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {}
+                            <div className="grid md:grid-cols-2 gap-6">
+                                {/* 매수 수량 시뮬레이터 */}
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-sm font-bold text-slate-200">💰 총 투자금 기준 매수 수량 시뮬레이터</h3>
+                                        <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                                            <span className="text-xs text-slate-400">총 투자금:</span>
+                                            <input type="number" step="500000" value={tradeSettings.totalCapital} onChange={(e) => setTradeSettings({totalCapital: parseInt(e.target.value) || 0})} className="bg-transparent text-sm font-bold font-mono text-cyan-300 w-28 text-right focus:outline-none" />
+                                            <span className="text-xs text-slate-400">원</span>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3 text-xs">
+                                        <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                                            <span className="text-slate-400">1차 매수 추천 비중 (50%):</span>
+                                            <span className="font-mono text-cyan-300 font-bold">약 {Math.floor((tradeSettings.totalCapital * 0.5) / calculations.finalBuy1)}주 ({Math.round(tradeSettings.totalCapital * 0.5).toLocaleString()}원)</span>
+                                        </div>
+                                        <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                                            <span className="text-slate-400">2차 매수 추천 비중 (50%):</span>
+                                            <span className="font-mono text-cyan-300 font-bold">약 {Math.floor((tradeSettings.totalCapital * 0.5) / calculations.finalBuy2)}주 ({Math.round(tradeSettings.totalCapital * 0.5).toLocaleString()}원)</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 매도 수량 시뮬레이터 (신규 추가) */}
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
+                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                                        <h3 className="text-sm font-bold text-emerald-400">🎯 보유 주수 기준 매도·익절 시뮬레이터</h3>
+                                        <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                                            <span className="text-xs text-slate-400">보유주수:</span>
+                                            <input type="number" value={sellSettings.ownedShares} onChange={(e) => setSellSettings({...sellSettings, ownedShares: parseInt(e.target.value) || 0})} className="bg-transparent text-sm font-bold font-mono text-emerald-300 w-16 text-right focus:outline-none" />
+                                            <span className="text-xs text-slate-400">주</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 text-xs">
+                                        <span className="text-slate-400">내 평균 매수가(평단):</span>
+                                        <input type="number" step="1000" value={sellSettings.avgBuyPrice} onChange={(e) => setSellSettings({...sellSettings, avgBuyPrice: parseInt(e.target.value) || 0})} className="bg-transparent text-sm font-bold font-mono text-cyan-300 w-32 focus:outline-none" />
+                                        <span className="text-slate-400">원</span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-2.5 text-xs">
+                                        <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                                            <div>
+                                                <span className="text-slate-300 font-semibold">1차 매도 (50% 물량):</span>
+                                                <span className="text-[11px] text-slate-400 block">{sellSimulation.half1}주 @ {sellSimulation.p1.toLocaleString()}원</span>
+                                            </div>
+                                            <span className={`font-mono font-bold ${sellSimulation.profit1 >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                {sellSimulation.profit1 >= 0 ? `+${sellSimulation.profit1.toLocaleString()}원` : `${sellSimulation.profit1.toLocaleString()}원`}
+                                            </span>
+                                        </div>
+                                        <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                                            <div>
+                                                <span className="text-slate-300 font-semibold">2차 매도 (잔량 50%):</span>
+                                                <span className="text-[11px] text-slate-400 block">{sellSimulation.half2}주 @ {sellSimulation.p2.toLocaleString()}원</span>
+                                            </div>
+                                            <span className={`font-mono font-bold ${sellSimulation.profit2 >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                {sellSimulation.profit2 >= 0 ? `+${sellSimulation.profit2.toLocaleString()}원` : `${sellSimulation.profit2.toLocaleString()}원`}
+                                            </span>
+                                        </div>
+                                        <div className="bg-emerald-950/30 p-3.5 rounded-xl border border-emerald-900/50 flex justify-between items-center">
+                                            <span className="text-emerald-300 font-bold">총 예상 익절 수익 및 수익률:</span>
+                                            <span className="font-mono text-emerald-300 font-extrabold text-sm">
+                                                +{sellSimulation.totalProfit.toLocaleString()}원 ({sellSimulation.totalReturnPct.toFixed(2)}%)
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
