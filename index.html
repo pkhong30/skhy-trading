@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SK하이닉스 나스닥 ADR (SKHY) 데이트레이딩 코치</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX compilation in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #020617; color: #f1f5f9; }
+    </style>
+</head>
+<body class="min-h-screen selection:bg-cyan-900 selection:text-cyan-100 pb-20">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+        
+        function App() {
+            const [activeTab, setActiveTab] = useState('prep');
+            const [copiedId, setCopiedId] = useState(null);
+            const [nlpText, setNlpText] = useState("");
+
+            // SK하이닉스 나스닥 ADR SKHY 기준 현실적인 기본값 세팅
+            const [marketData, setMarketData] = useState({
+                prevClose: 165000,
+                prevLow: 162000,
+                prevHigh: 172000,
+                fx: 1370,
+                futuresFlow: "상승 압력",
+                adrStatus: "강세(+1.5% 이상)",
+                supplyFlow: "순매수 우위",
+                googleExpectation: "HBM 수요 호조 및 실적 기대감"
+            });
+
+            const [plan, setPlan] = useState({ buy1: 163000, target: 175000, stopLoss: 158000, currentPrice: 164500 });
+            const [tradeSettings, setTradeSettings] = useState({ totalCapital: 10000000 });
+
+            // 아이콘 리프레시
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            }, [activeTab, copiedId]);
+
+            const handleNlpParse = () => {
+                if (!nlpText.trim()) return;
+                const newValues = { ...marketData };
+                const text = nlpText;
+
+                const extractNumber = (keyword) => {
+                    const index = text.indexOf(keyword);
+                    if (index !== -1) {
+                        const substring = text.substring(index, index + 35);
+                        const match = substring.match(/\d{1,3}(,\d{3})*(\.\d+)?/);
+                        if (match) return parseInt(match[0].replace(/,/g, ''));
+                    }
+                    return null;
+                };
+
+                const parsedClose = extractNumber("종가");
+                if (parsedClose && parsedClose > 1000) newValues.prevClose = parsedClose;
+                const parsedHigh = extractNumber("고가");
+                if (parsedHigh && parsedHigh > 1000) newValues.prevHigh = parsedHigh;
+                const parsedLow = extractNumber("저가");
+                if (parsedLow && parsedLow > 1000) newValues.prevLow = parsedLow;
+                const parsedFx = extractNumber("환율");
+                if (parsedFx && parsedFx < 2000 && parsedFx > 1000) newValues.fx = parsedFx;
+
+                setMarketData(newValues);
+                alert("✨ 자연어 분석 완료!");
+            };
+
+            const promptQuestions = [
+                {
+                    id: 1,
+                    title: "1. SK하이닉스 나스닥 ADR (SKHY) 시세 및 환율",
+                    question: `SK하이닉스 미국 나스닥 ADR (SKHY)의 전일 종가, 전일 저가, 전일 고가 그리고 현재 원/달러 환율은 각각 얼마야? 숫자로 정확하게 알려줘.`
+                },
+                {
+                    id: 2,
+                    title: "2. 글로벌 지표 및 수급 동향",
+                    question: `필라델피아 반도체 지수 흐름, SK하이닉스(SKHY) 프리마켓 모멘텀, 기관 및 외국인 수급 동향, HBM 수요 키워드는 어때?`
+                }
+            ];
+
+            const copyPromptText = (text, index) => {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.top = "0";
+                textArea.style.left = "0";
+                textArea.style.opacity = "0";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    setCopiedId(index);
+                    setTimeout(() => setCopiedId(null), 2000);
+                } catch (err) {
+                    console.error('Copy failed', err);
+                }
+                document.body.removeChild(textArea);
+            };
+
+            const analysis = useMemo(() => {
+                let score = 50;
+                if (marketData.futuresFlow === "상승 압력") score += 15;
+                if (marketData.adrStatus === "강세(+1.5% 이상)") score += 15;
+                if (marketData.supplyFlow === "순매수 우위") score += 15;
+
+                let sentiment = score >= 75 ? "강한 매수 우위 (공격적 분할매수 유효)" : score >= 60 ? "완만한 상승 우위 (눌림목 중심 공략)" : "보수적 관망 및 비중 축소";
+                const supportZone = marketData.prevLow > 0 && marketData.prevClose > 0 ? Math.round((marketData.prevLow + marketData.prevClose) / 2) : 162000;
+                const resistZone = marketData.prevHigh > 0 ? marketData.prevHigh : 172000;
+
+                return { score, sentiment, supportZone, resistZone };
+            }, [marketData]);
+
+            const tranchePlan = useMemo(() => {
+                const baseBuy = plan.buy1 > 0 ? plan.buy1 : analysis.supportZone;
+                const target = plan.target > 0 ? plan.target : analysis.resistZone;
+                const stop = plan.stopLoss > 0 ? plan.stopLoss : Math.round(baseBuy * 0.975);
+
+                const cap = tradeSettings.totalCapital;
+                return {
+                    buys: [
+                        { step: '1차 진입 (초반 지지)', price: baseBuy, ratio: '40%', amount: Math.round(cap * 0.4), shares: Math.floor((cap * 0.4) / baseBuy) },
+                        { step: '2차 진입 (눌림목 추가)', price: Math.round(baseBuy * 0.988), ratio: '30%', amount: Math.round(cap * 0.3), shares: Math.floor((cap * 0.3) / (baseBuy * 0.988)) },
+                        { step: '3차 진입 (최종 지지방어)', price: Math.round(baseBuy * 0.976), ratio: '30%', amount: Math.round(cap * 0.3), shares: Math.floor((cap * 0.3) / (baseBuy * 0.976)) },
+                    ],
+                    sells: [
+                        { step: '1차 익절 (수익 확보)', price: Math.round(target * 0.97), ratio: '30%' },
+                        { step: '2차 익절 (핵심 저항)', price: Math.round(target * 0.985), ratio: '40%' },
+                        { step: '3차 익절 (최고점 잔량)', price: target, ratio: '30%' },
+                    ],
+                    stopLoss: stop
+                };
+            }, [plan, analysis, tradeSettings]);
+
+            return (
+                <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
+                    {/* HEADER */}
+                    <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-5">
+                        <div className="space-y-1">
+                            <h1 className="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
+                                SK하이닉스 나스닥 ADR (SKHY) 데이트레이딩 코치
+                            </h1>
+                            <p className="text-sm text-slate-400 flex items-center gap-2">
+                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                실시간 연동형 코칭 시스템
+                            </p>
+                        </div>
+                        <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
+                            <button onClick={() => setActiveTab('prep')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'prep' ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400'}`}>1. 장전 준비 (Prep)</button>
+                            <button onClick={() => setActiveTab('trade')} className={`px-4 py-2 rounded-md text-sm font-bold ${activeTab === 'trade' ? 'bg-emerald-950 text-emerald-400' : 'text-slate-400'}`}>2. 장중 대응 (Trade)</button>
+                        </div>
+                    </header>
+
+                    {/* QUICK LINKS */}
+                    <section className="flex flex-wrap items-center gap-3 text-xs bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                        <span className="text-slate-400 font-semibold">주요 실시간 링크:</span>
+                        <a href="https://finance.yahoo.com/quote/HXSCL/" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-md border border-slate-700">
+                            야후 파이낸스 (SKHY ADR)
+                        </a>
+                    </section>
+
+                    {/* TAB 1 */}
+                    {activeTab === 'prep' && (
+                        <div className="space-y-6">
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                                <h3 className="text-sm font-bold text-cyan-400">AI 질문 프롬프트 생성기 (데이터 수집용)</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    {promptQuestions.map((item, idx) => (
+                                        <div key={item.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                                            <div className="text-xs font-bold text-slate-300">{item.title}</div>
+                                            <p className="text-[11px] font-mono text-slate-400 bg-slate-900 p-2.5 rounded-lg border border-slate-800">{item.question}</p>
+                                            <button onClick={() => copyPromptText(item.question, idx)} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-bold border border-slate-700">
+                                                {copiedId === idx ? '복사 완료!' : '질문 프롬프트 복사하기'}
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="pt-3 border-t border-slate-800 space-y-2">
+                                    <label className="text-xs font-semibold text-slate-300 block">🤖 AI 답변 자동 파싱</label>
+                                    <div className="flex gap-2">
+                                        <textarea rows="2" value={nlpText} onChange={(e) => setNlpText(e.target.value)} placeholder="AI가 알려준 답변을 여기에 붙여넣고 버튼을 누르세요" className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none" />
+                                        <button onClick={handleNlpParse} className="px-5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold">자동 채우기</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB 2 */}
+                    {activeTab === 'trade' && (
+                        <div className="space-y-6">
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex justify-between items-center gap-4">
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-200">💰 자본금 및 분할 매매 자금 배분</h3>
+                                    <p className="text-xs text-slate-400">설정한 투자금에 맞추어 3단계 진입 수량이 자동으로 산출됩니다.</p>
+                                </div>
+                                <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
+                                    <span className="text-xs text-slate-400">총 투자금:</span>
+                                    <input type="number" step="100000" value={tradeSettings.totalCapital} onChange={(e) => setTradeSettings({totalCapital: parseInt(e.target.value) || 0})} className="bg-transparent text-sm font-bold font-mono text-cyan-300 w-28 text-right focus:outline-none" />
+                                    <span className="text-xs text-slate-400">원</span>
+                                </div>
+                            </div>
+
+                            <div className="grid md:grid-cols-2 gap-6">
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                                    <h3 className="text-sm font-bold text-cyan-400">3단계 분할 매수 전략</h3>
+                                    <div className="space-y-3">
+                                        {tranchePlan.buys.map((b, idx) => (
+                                            <div key={idx} className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl flex justify-between items-center">
+                                                <div>
+                                                    <div className="text-xs font-bold text-slate-300">{b.step}</div>
+                                                    <div className="text-[11px] text-slate-400">비중 {b.ratio} ({b.amount.toLocaleString()}원 / 약 {b.shares}주)</div>
+                                                </div>
+                                                <div className="text-base font-extrabold text-cyan-300 font-mono">${b.price.toLocaleString()}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                                    <h3 className="text-sm font-bold text-emerald-400">3단계 분할 매도 전략</h3>
+                                    <div className="space-y-3">
+                                        {tranchePlan.sells.map((s, idx) => (
+                                            <div key={idx} className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl flex justify-between items-center">
+                                                <div>
+                                                    <div className="text-xs font-bold text-slate-300">{s.step}</div>
+                                                    <div className="text-[11px] text-slate-400">매도 비중: {s.ratio}</div>
+                                                </div>
+                                                <div className="text-base font-extrabold text-emerald-300 font-mono">${s.price.toLocaleString()}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
