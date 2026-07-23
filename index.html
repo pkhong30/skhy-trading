@@ -81,13 +81,21 @@
             const promptQuestions = [
                 {
                     id: 1,
-                    title: "1. SK하이닉스 나스닥 ADR (SKHY) 시세 및 환율",
-                    question: `SK하이닉스 미국 나스닥 ADR (SKHY)의 전일 종가, 전일 저가, 전일 고가 그리고 현재 원/달러 환율은 각각 얼마야? 숫자로 정확하게 알려줘.`
+                    title: "1. SK하이닉스 나스닥 상장 (SKHY) 시세 및 환율",
+                    question: `[데이터 요청] 다음 항목을 정확한 숫자와 값으로만 요약 출력해줘: 
+1. SK하이닉스 미국 나스닥 ADR (SKHY) 전일 종가:
+2. SK하이닉스 미국 나스닥 ADR (SKHY) 전일 저가:
+3. SK하이닉스 미국 나스닥 ADR (SKHY) 전일 고가:
+4. 현재 원/달러 환율:`
                 },
                 {
                     id: 2,
-                    title: "2. 글로벌 지표 및 수급 동향",
-                    question: `필라델피아 반도체 지수 흐름, SK하이닉스(SKHY) 프리마켓 모멘텀, 기관 및 외국인 수급 동향, HBM 수요 키워드는 어때?`
+                    title: "2. 글로벌 지표 및 HBM/수급 모니터링 (기계적 파싱용)",
+                    question: `[데이터 요청] 다음 글로벌 및 수급 지표를 명확한 상태값(상승압력/하락압력/순매수우위 등)으로 요약 출력해줘:
+1. 미국 필라델피아 반도체 지수 흐름 (상승 압력 / 하락 압력 / 보합 중 택1):
+2. SK하이닉스(SKHY) 프리마켓 및 본장 모멘텀 (강세 / 중립 / 약세 중 택1):
+3. 최근 기관 및 외국인 수급 동향 (순매수 우위 / 중립 / 순매도 출하 중 택1):
+4. HBM 수요 및 실적 모멘텀 키워드 (호조 / 불확실 / 우려 중 택1):`
                 }
             ];
 
@@ -167,14 +175,15 @@
                     {/* QUICK LINKS */}
                     <section className="flex flex-wrap items-center gap-3 text-xs bg-slate-900/50 p-3 rounded-xl border border-slate-800">
                         <span className="text-slate-400 font-semibold">주요 실시간 링크:</span>
-                        <a href="https://finance.yahoo.com/quote/HXSCL/" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-md border border-slate-700">
+                        <a href="https://finance.yahoo.com/quote/SKHY/" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-md border border-slate-700">
                             야후 파이낸스 (SKHY ADR)
                         </a>
                     </section>
 
-                    {/* TAB 1 */}
+                    {/* TAB 1: PREP */}
                     {activeTab === 'prep' && (
                         <div className="space-y-6">
+                            {/* AI 프롬프트 생성기 */}
                             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                                 <h3 className="text-sm font-bold text-cyan-400">AI 질문 프롬프트 생성기 (데이터 수집용)</h3>
                                 <div className="grid md:grid-cols-2 gap-4">
@@ -196,10 +205,64 @@
                                     </div>
                                 </div>
                             </div>
+
+                            {/* 핵심 파라미터 수동 세팅 */}
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                                <h3 className="text-sm font-bold text-slate-200 border-b border-slate-800 pb-3">
+                                    🎯 핵심 파라미터 수동 세팅 (SKHY 나스닥 기준)
+                                </h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-950/50 rounded-xl border border-slate-800">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 종가 ($)</label>
+                                        <input type="number" value={marketData.prevClose} onChange={(e) => setMarketData({...marketData, prevClose: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 저가 ($ - 지지)</label>
+                                        <input type="number" value={marketData.prevLow} onChange={(e) => setMarketData({...marketData, prevLow: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">전일 고가 ($ - 저항)</label>
+                                        <input type="number" value={marketData.prevHigh} onChange={(e) => setMarketData({...marketData, prevHigh: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-slate-400 block">원/달러 환율</label>
+                                        <input type="number" value={marketData.fx} onChange={(e) => setMarketData({...marketData, fx: parseInt(e.target.value) || 0})}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm font-mono text-slate-200 focus:outline-none" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* SKHY 나스닥 장전 전략 브리핑 */}
+                            <div className="bg-gradient-to-r from-cyan-950 to-blue-950 border border-cyan-800 rounded-2xl p-6 space-y-4">
+                                <h3 className="text-lg font-bold text-cyan-300">📈 SKHY 나스닥 장전 전략 브리핑</h3>
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+                                        <p className="text-xs text-slate-400 mb-1">오늘의 시장 심리 점수</p>
+                                        <div className="flex items-end gap-3">
+                                            <span className="text-4xl font-black text-emerald-400">{analysis.score}</span>
+                                            <span className="text-sm text-slate-500 mb-1">/ 100</span>
+                                        </div>
+                                        <p className="text-sm font-semibold text-slate-300 mt-2">{analysis.sentiment}</p>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center">
+                                            <span className="text-sm text-slate-400">추천 1차 지지선 ($)</span>
+                                            <span className="text-lg font-bold text-amber-300 font-mono">${analysis.supportZone.toLocaleString()}</span>
+                                        </div>
+                                        <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center">
+                                            <span className="text-sm text-slate-400">오늘 핵심 저항선 ($)</span>
+                                            <span className="text-lg font-bold text-cyan-300 font-mono">${analysis.resistZone.toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
-                    {/* TAB 2 */}
+                    {/* TAB 2: TRADE */}
                     {activeTab === 'trade' && (
                         <div className="space-y-6">
                             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex justify-between items-center gap-4">
